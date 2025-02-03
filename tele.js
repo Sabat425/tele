@@ -107,13 +107,23 @@
     };
   
     const completeProgress = (videoId) => {
-      const progressBar = document
-        .getElementById("tel-downloader-progress-" + videoId)
-        .querySelector("div.progress");
-      progressBar.querySelector("p").innerText = "Completed";
-      progressBar.querySelector("div").style.backgroundColor = "#B6C649";
-      progressBar.querySelector("div").style.width = "100%";
-    };
+  const progressContainer = document.getElementById("tel-downloader-progress-" + videoId);
+  const progressBar = progressContainer.querySelector("div.progress");
+  
+  // Update progress bar to show completion
+  progressBar.querySelector("p").innerText = "Completed";
+  progressBar.querySelector("div").style.backgroundColor = "#B6C649";
+  progressBar.querySelector("div").style.width = "100%";
+  
+  // Set timeout to remove the progress bar after 4 seconds
+  setTimeout(() => {
+    const container = document.getElementById("tel-downloader-progress-bar-container");
+    const elementToRemove = document.getElementById("tel-downloader-progress-" + videoId);
+    if (container && elementToRemove) {
+      container.removeChild(elementToRemove);
+    }
+  }, 4000); // 4000 milliseconds = 4 seconds
+};
   
     const AbortProgress = (videoId) => {
       const progressBar = document
