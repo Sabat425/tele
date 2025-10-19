@@ -128,7 +128,7 @@
     }
   };
 
-  // Video download from original, adapted
+  // Video download (direct to downloads, no FSA prompt)
   const tel_download_video = (url) => {
     if (!url) return;
     let _blobs = [];
@@ -148,7 +148,7 @@
 
     logger.info(`Starting video download: ${url.substring(0, 50)}...`, fileName);
 
-    const fetchNextPart = (writable = null) => {
+    const fetchNextPart = () => {
       const headers = { Range: `bytes=${_next_offset}-` };
       fetch(url, { method: "GET", headers }).then(res => {
         if (![200, 206].includes(res.status)) throw new Error(`Status: ${res.status}`);
@@ -175,21 +175,18 @@
             _total_size = blob.size;
             _next_offset = _total_size;
             updateProgress(videoId, fileName, 100);
-            if (writable) writable.write(blob).then(() => writable.close());
-            else save();
+            save();
             completeProgress(videoId);
           });
         }
 
         _next_offset = endOffset + 1;
-        const pct = ((_next_offset * 100) / _total_size).toFixed(0);
+        const pct = ((_next_offset * 100) / _total_size || 0).toFixed(0);
         updateProgress(videoId, fileName, pct);
         return res.blob();
       }).then(blob => {
-        if (writable) writable.write(blob);
-        else _blobs.push(blob);
-        if (_next_offset < _total_size) fetchNextPart(writable);
-        else if (writable) writable.close().then(() => logger.info("FSA finished", fileName));
+        if (blob) _blobs.push(blob);
+        if (_next_offset < _total_size) fetchNextPart();
         else save();
       }).catch(err => {
         logger.error(err, fileName);
@@ -199,7 +196,7 @@
 
     const save = () => {
       try {
-        if (!_blobs.length || !_blobs[0].size) {
+        if (!_blobs.length || !_blobs[0]?.size) {
           logger.error("No data to save", fileName);
           abortProgress(videoId);
           return;
@@ -219,7 +216,9 @@
             event.initMouseEvent('click', true, true, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);
             a.dispatchEvent(event);
           }, 0);
-        } else a.click();
+        } else {
+          a.click();
+        }
         setTimeout(() => {
           if (document.body.contains(a)) document.body.removeChild(a);
           URL.revokeObjectURL(blobUrl);
@@ -233,18 +232,10 @@
     };
 
     createProgressBar(videoId, fileName);
-    const supportsFSA = typeof window !== 'undefined' && "showSaveFilePicker" in window && window.self === window.top;
-    if (supportsFSA) {
-      window.showSaveFilePicker({ suggestedName: fileName }).then(handle => handle.createWritable().then(writable => fetchNextPart(writable))).catch(err => {
-        if (err.name !== "AbortError") logger.error(err);
-        else fetchNextPart();
-      });
-    } else {
-      fetchNextPart();
-    }
+    fetchNextPart();
   };
 
-  // Audio download from original, adapted
+  // Audio download (direct to downloads, no FSA prompt)
   const tel_download_audio = (url) => {
     if (!url) return;
     let _blobs = [];
@@ -254,7 +245,7 @@
     if (h === 0) h = Date.now();
     const fileName = h.toString(36) + ".ogg";
 
-    const fetchNextPart = (writable = null) => {
+    const fetchNextPart = () => {
       const headers = { Range: `bytes=${_next_offset}-` };
       fetch(url, { method: "GET", headers }).then(res => {
         if (![200, 206].includes(res.status)) throw new Error(`Status: ${res.status}`);
@@ -276,25 +267,22 @@
             _blobs = [blob];
             _total_size = blob.size;
             _next_offset = _total_size;
-            if (writable) writable.write(blob).then(() => writable.close());
-            else save();
+            save();
           });
         }
 
         _next_offset = endOffset + 1;
         return res.blob();
       }).then(blob => {
-        if (writable) writable.write(blob);
-        else _blobs.push(blob);
-        if (_next_offset < _total_size) fetchNextPart(writable);
-        else if (writable) writable.close();
+        if (blob) _blobs.push(blob);
+        if (_next_offset < _total_size) fetchNextPart();
         else save();
       }).catch(err => logger.error(err, fileName));
     };
 
     const save = () => {
       try {
-        if (!_blobs.length || !_blobs[0].size) {
+        if (!_blobs.length || !_blobs[0]?.size) {
           logger.error("No data to save", fileName);
           return;
         }
@@ -306,7 +294,16 @@
         document.body.appendChild(a);
         a.href = blobUrl;
         a.download = fileName;
-        a.click();
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        if (isMobile) {
+          setTimeout(() => {
+            const event = document.createEvent('MouseEvents');
+            event.initMouseEvent('click', true, true, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);
+            a.dispatchEvent(event);
+          }, 0);
+        } else {
+          a.click();
+        }
         setTimeout(() => {
           if (document.body.contains(a)) document.body.removeChild(a);
           URL.revokeObjectURL(blobUrl);
@@ -317,15 +314,7 @@
       }
     };
 
-    const supportsFSA = typeof window !== 'undefined' && "showSaveFilePicker" in window && window.self === window.top;
-    if (supportsFSA) {
-      window.showSaveFilePicker({ suggestedName: fileName }).then(handle => handle.createWritable().then(writable => fetchNextPart(writable))).catch(err => {
-        if (err.name !== "AbortError") logger.error(err);
-        else fetchNextPart();
-      });
-    } else {
-      fetchNextPart();
-    }
+    fetchNextPart();
   };
 
   const tel_download_image = (url) => {
@@ -340,7 +329,16 @@
       document.body.appendChild(a);
       a.href = url;
       a.download = fileName;
-      a.click();
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      if (isMobile) {
+        setTimeout(() => {
+          const event = document.createEvent('MouseEvents');
+          event.initMouseEvent('click', true, true, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);
+          a.dispatchEvent(event);
+        }, 0);
+      } else {
+        a.click();
+      }
       setTimeout(() => {
         if (document.body.contains(a)) document.body.removeChild(a);
       }, 100);
@@ -471,7 +469,7 @@
       setInterval(addDownloadButtonsToMedia, REFRESH_DELAY);
       setTimeout(addDownloadButtonsToMedia, 100);
 
-      logger.info("Fixed Telegram Downloader: Original logic + fixes (no 0.mp4, viewable videos).");
+      logger.info("Telegram Downloader: Direct downloads (no path prompts, faster saves).");
     } catch (e) {
       logger.error("Init error: " + e.message);
       setTimeout(init, 200);
