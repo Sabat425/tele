@@ -128,7 +128,7 @@
     }
   };
 
-  // Video download (direct to downloads, no FSA prompt)
+  // Direct download to Downloads folder
   const tel_download_video = (url) => {
     if (!url) return;
     let _blobs = [];
@@ -146,7 +146,7 @@
       if (metadata.fileName) fileName = metadata.fileName;
     } catch {}
 
-    logger.info(`Starting video download: ${url.substring(0, 50)}...`, fileName);
+    logger.info(`Starting download: ${url.substring(0, 50)}...`, fileName);
 
     const fetchNextPart = () => {
       const headers = { Range: `bytes=${_next_offset}-` };
@@ -168,14 +168,13 @@
           if (_total_size && totalSize !== _total_size) throw new Error("Size mismatch");
           _total_size = totalSize;
         } else if (res.status === 200) {
-          // Full fallback
           logger.info("Full download fallback", fileName);
           return res.blob().then(blob => {
             _blobs = [blob];
             _total_size = blob.size;
             _next_offset = _total_size;
             updateProgress(videoId, fileName, 100);
-            save();
+            saveToDownloads(blob, fileName, videoId);
             completeProgress(videoId);
           });
         }
@@ -187,55 +186,20 @@
       }).then(blob => {
         if (blob) _blobs.push(blob);
         if (_next_offset < _total_size) fetchNextPart();
-        else save();
+        else {
+          const finalBlob = new Blob(_blobs, { type: `video/${_file_extension}` });
+          saveToDownloads(finalBlob, fileName, videoId);
+        }
       }).catch(err => {
         logger.error(err, fileName);
         abortProgress(videoId);
       });
     };
 
-    const save = () => {
-      try {
-        if (!_blobs.length || !_blobs[0]?.size) {
-          logger.error("No data to save", fileName);
-          abortProgress(videoId);
-          return;
-        }
-        const blob = new Blob(_blobs, { type: `video/${_file_extension}` });
-        const blobUrl = URL.createObjectURL(blob);
-        const a = safeCreateElement("a");
-        if (!a) return;
-        a.style.display = "none";
-        document.body.appendChild(a);
-        a.href = blobUrl;
-        a.download = fileName;
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        if (isMobile) {
-          setTimeout(() => {
-            const event = document.createEvent('MouseEvents');
-            event.initMouseEvent('click', true, true, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);
-            a.dispatchEvent(event);
-          }, 0);
-        } else {
-          a.click();
-        }
-        setTimeout(() => {
-          if (document.body.contains(a)) document.body.removeChild(a);
-          URL.revokeObjectURL(blobUrl);
-        }, 100);
-        logger.info(`Downloaded: ${blob.size} bytes`, fileName);
-        completeProgress(videoId);
-      } catch (e) {
-        logger.error("Save error: " + e.message, fileName);
-        abortProgress(videoId);
-      }
-    };
-
     createProgressBar(videoId, fileName);
     fetchNextPart();
   };
 
-  // Audio download (direct to downloads, no FSA prompt)
   const tel_download_audio = (url) => {
     if (!url) return;
     let _blobs = [];
@@ -267,7 +231,7 @@
             _blobs = [blob];
             _total_size = blob.size;
             _next_offset = _total_size;
-            save();
+            saveToDownloads(blob, fileName);
           });
         }
 
@@ -276,42 +240,11 @@
       }).then(blob => {
         if (blob) _blobs.push(blob);
         if (_next_offset < _total_size) fetchNextPart();
-        else save();
+        else {
+          const finalBlob = new Blob(_blobs, { type: "audio/ogg" });
+          saveToDownloads(finalBlob, fileName);
+        }
       }).catch(err => logger.error(err, fileName));
-    };
-
-    const save = () => {
-      try {
-        if (!_blobs.length || !_blobs[0]?.size) {
-          logger.error("No data to save", fileName);
-          return;
-        }
-        const blob = new Blob(_blobs, { type: "audio/ogg" });
-        const blobUrl = URL.createObjectURL(blob);
-        const a = safeCreateElement("a");
-        if (!a) return;
-        a.style.display = "none";
-        document.body.appendChild(a);
-        a.href = blobUrl;
-        a.download = fileName;
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        if (isMobile) {
-          setTimeout(() => {
-            const event = document.createEvent('MouseEvents');
-            event.initMouseEvent('click', true, true, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);
-            a.dispatchEvent(event);
-          }, 0);
-        } else {
-          a.click();
-        }
-        setTimeout(() => {
-          if (document.body.contains(a)) document.body.removeChild(a);
-          URL.revokeObjectURL(blobUrl);
-        }, 100);
-        logger.info(`Audio downloaded: ${blob.size} bytes`, fileName);
-      } catch (e) {
-        logger.error("Audio save error: " + e.message, fileName);
-      }
     };
 
     fetchNextPart();
@@ -323,12 +256,48 @@
       let h = hashCode(url);
       if (h === 0) h = Date.now();
       const fileName = h.toString(36) + ".jpeg";
+      
+      fetch(url).then(res => res.blob()).then(blob => {
+        saveToDownloads(blob, fileName);
+        logger.info("Image downloaded", fileName);
+      }).catch(err => {
+        // Fallback to direct link
+        const a = safeCreateElement("a");
+        if (!a) return;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        setTimeout(() => {
+          if (document.body.contains(a)) document.body.removeChild(a);
+        }, 100);
+        logger.info("Image downloaded (fallback)", fileName);
+      });
+    } catch (e) {
+      logger.error("Image download error: " + e.message);
+    }
+  };
+
+  // Save directly to Downloads folder
+  const saveToDownloads = (blob, fileName, videoId = null) => {
+    try {
+      if (!blob || !blob.size) {
+        logger.error("No data to save", fileName);
+        if (videoId) abortProgress(videoId);
+        return;
+      }
+
+      const blobUrl = URL.createObjectURL(blob);
       const a = safeCreateElement("a");
       if (!a) return;
+      
       a.style.display = "none";
       document.body.appendChild(a);
-      a.href = url;
+      a.href = blobUrl;
       a.download = fileName;
+      
+      // Mobile compatibility
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       if (isMobile) {
         setTimeout(() => {
@@ -339,12 +308,17 @@
       } else {
         a.click();
       }
+      
       setTimeout(() => {
         if (document.body.contains(a)) document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
       }, 100);
-      logger.info("Image downloaded", fileName);
+
+      logger.info(`Saved to Downloads: ${blob.size} bytes`, fileName);
+      if (videoId) completeProgress(videoId);
     } catch (e) {
-      logger.error("Image download error: " + e.message);
+      logger.error("Save error: " + e.message, fileName);
+      if (videoId) abortProgress(videoId);
     }
   };
 
@@ -469,7 +443,7 @@
       setInterval(addDownloadButtonsToMedia, REFRESH_DELAY);
       setTimeout(addDownloadButtonsToMedia, 100);
 
-      logger.info("Telegram Downloader: Direct downloads (no path prompts, faster saves).");
+      logger.info("Telegram Downloader initialized - Direct to Downloads folder!");
     } catch (e) {
       logger.error("Init error: " + e.message);
       setTimeout(init, 200);
